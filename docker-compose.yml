@@ -20,5 +20,6 @@ services:
       memlock: -1
       stack: 67108864
     volumes:
-      - "${HOST_APP_FOLDER:-~/Desktop/tsl8}:/app"
-      - "/data:/data"
+      - "${HOST_APP_FOLDER:-~/tsl8}:/app"
+      - "/mnt/isilon1/georg/data:/data"
+      - "/mnt/isilon1/pathology:/pathology"

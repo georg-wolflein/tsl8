@@ -16,12 +16,17 @@ import cv2
 from scipy import ndimage
 from numpy import ndarray
 
+from .readers import make_slide_reader
+from .readers import SlideReader
+from .readers.mpp import MPPExtractionError
+from .canny import is_background as canny_is_background
+
 Image.MAX_IMAGE_PIXELS = None
-cores = 16
+cores = 1
 size = 512
 target_mpp = 0.5
-svs_path = Path(r"/data/CPTAC-BRCA/")
-t_dir = Path(r"/data/CPTAC-BRCA_tiles")
+svs_path = Path(r"/pathology/camelyon16/training/tumor/")
+t_dir = Path(r"/data/tmp_cam16_tiles")
 svs_dir = [f for f in svs_path.glob(f'*') if not str(f).endswith(".h5") and not str(f).endswith("logfile")]
 
 def get_patches(img_norm_wsi_jpg, dir_name):
@@ -38,6 +43,7 @@ def get_patches(img_norm_wsi_jpg, dir_name):
                 if z > 1:
                     patch = ndimage.zoom(patch, (size / patch.shape[0], size / patch.shape[1], 1))
                 Image.fromarray(patch).save(f"{dir_name}/Tile_{i,j}.jpg")
+                print(f"Saved {dir_name}/Tile_{i,j}.jpg")
     
 def process_slide_jpg(slide_url):
     slide_name = Path(slide_url)
@@ -54,37 +60,16 @@ def process_slide_jpg(slide_url):
             get_patches(img_norm_wsi_jpg, dir_name)
 
 def canny_fcn(patch: np.array) -> Tuple[np.array, bool]:
-    patch_img = PIL.Image.fromarray(patch)
-    tile_to_greyscale = patch_img.convert('L')
-    # tile_to_greyscale is an PIL.Image.Image with image mode L
-    # Note: If you have an L mode image, that means it is
-    # a single channel image - normally interpreted as greyscale.
-    # The L means that is just stores the Luminance.
-    # It is very compact, but only stores a greyscale, not colour.
-
-    tile2array = np.array(tile_to_greyscale)
-
-    # hardcoded thresholds
-    edge = cv2.Canny(tile2array, 40, 100)
-
-    # avoid dividing by zero
-    edge = (edge / np.max(edge) if np.max(edge) != 0 else 0)
-    edge = (((np.sum(np.sum(edge)) / (tile2array.shape[0]*tile2array.shape[1])) * 100)
-        if (tile2array.shape[0]*tile2array.shape[1]) != 0 else 0)
-
-    # hardcoded limit. Less or equal to 2 edges will be rejected (i.e., not saved)
-    if(edge < 2.):
-        #return a black image + rejected=True
-        return (np.zeros_like(patch), True)
-    else:
-        #return the patch + rejected=False
-        return (patch, False)
+    reject = canny_is_background(patch) # use faster canny implementation
+    if reject:
+        patch = np.zeros_like(patch)
+    return patch, reject
 
 
 def reject_background(img: np.array, patch_size: Tuple[int,int], step: int, save_tiles: bool = False, outdir: Path = None, cores: int = 8) -> \
 Tuple[ndarray, ndarray, List[Any]]:
     img_shape = img.shape
-    #print(f"\nSize of WSI: {img_shape}")
+    # print(f"\nSize of WSI: {img_shape}")
 
     split=True
     x=(img_shape[0]//patch_size[0])*(img_shape[1]//patch_size[1])
@@ -147,14 +132,19 @@ def get_raw_tile_list(I_shape: tuple, bg_reject_array: np.array, rejected_tile_a
     return canny_img, canny_output_array, coords_list, zoom_list
 
 def _load_tile(
-    slide: openslide.OpenSlide, pos: Tuple[int, int], stride: Tuple[int, int], target_size: Tuple[int, int]
+    slide: SlideReader, pos: Tuple[int, int], stride: Tuple[int, int], target_size: Tuple[int, int]
 ) -> np.ndarray:
     # Loads part of a WSI. Used for parallelization with ThreadPoolExecutor
-    tile = slide.read_region(pos, 0, stride).convert('RGB').resize(target_size)
-    return np.array(tile)
+    print("Loading tile at position", pos, "size", stride)
+    tile = slide.read_region(pos, 0, stride)
+    print("Loaded tile at position", pos)
+    tile = cv2.resize(tile, target_size)
+    print("Resized tile at position", pos, tile.shape)
+    cv2.imwrite(f"/app/abcTile_{pos[0],pos[1]}.jpg",tile)
+    return tile
 
 
-def load_slide(slide: openslide.OpenSlide, target_mpp: float = 256/224, cores: int = 8) -> np.ndarray:
+def load_slide(slide: SlideReader, target_mpp: float = 256/224, cores: int = 8) -> np.ndarray:
     """Loads a slide into a numpy array."""
     # We load the slides in tiles to
     #  1. parallelize the loading process
@@ -163,16 +153,10 @@ def load_slide(slide: openslide.OpenSlide, target_mpp: float = 256/224, cores: i
     steps = 8
     stride = np.ceil(np.array(slide.dimensions)/steps).astype(int)
     try:
-        slide_mpp = float(slide.properties[openslide.PROPERTY_NAME_MPP_X])
-        #print(f"Read slide MPP of {slide_mpp} from meta-data")
-    except KeyError:
-        #if it fails, then try out missing mpp handler
-        #TODO: create handlers for different image types
-        try:
-            slide_mpp = handle_missing_mpp(slide)
-        except:
-            print(f"Error: couldn't load MPP from slide!")
-            return None
+        slide_mpp = slide.mpp
+    except MPPExtractionError:
+        print(f"Error: couldn't load MPP from slide!")
+        return None
     #steps = np.ceil(np.array(slide.dimensions)/(size*target_mpp/slide_mpp)).astype(int)
     #stride = np.ceil(np.array(slide.dimensions)/steps).astype(int)
     tile_target_size = np.round(stride*slide_mpp/target_mpp).astype(int)
@@ -181,8 +165,8 @@ def load_slide(slide: openslide.OpenSlide, target_mpp: float = 256/224, cores: i
     with futures.ThreadPoolExecutor(cores) as executor:
         # map from future to its (row, col) index
         future_coords: Dict[futures.Future, Tuple[int, int]] = {}
-        for i in range(steps):  # row
-            for j in range(steps):  # column
+        for i in (4, 5):  # row
+            for j in (4, 5):  # column
                 future = executor.submit(
                     _load_tile, slide, (stride*(j, i)), stride, tile_target_size)
                 future_coords[future] = (i, j)
@@ -199,27 +183,12 @@ def load_slide(slide: openslide.OpenSlide, target_mpp: float = 256/224, cores: i
             #Image.fromarray(tile).save(f"{dir_name}/Tile_{j,i}.jpg")
         return im
 
-    
-
-def handle_missing_mpp(slide: openslide.OpenSlide) -> float:
-    #print(f"Missing mpp in metadata of this file format, reading mpp from metadata!!")
-    import xml.dom.minidom as minidom
-    xml_path = slide.properties['tiff.ImageDescription']
-    doc = minidom.parseString(xml_path)
-    collection = doc.documentElement
-    images = collection.getElementsByTagName("Image")
-    pixels = images[0].getElementsByTagName("Pixels")
-    #tile_size_px = um_per_tile / float(pixels[0].getAttribute("PhysicalSizeX"))
-    mpp = float(pixels[0].getAttribute("PhysicalSizeX"))
-    return mpp
-
-
 def process_slide_svs(slide_url,slide_cores = 4):
     slide_name = Path(slide_url)
     slide_cache_dir = Path(f'{t_dir}/{str(slide_name).split("/")[-1].split(".")[0]}')
     #print(f"\nLoading {slide_name}")
     try:
-        slide = openslide.OpenSlide(str(slide_url))
+        slide = make_slide_reader(slide_url)
     except openslide.lowlevel.OpenSlideUnsupportedFormatError:
         print(f"Unsupported format for {slide_name}")
         return None

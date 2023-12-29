@@ -2,7 +2,7 @@ import openslide
 from openslide import lowlevel as openslide_ll
 from ctypes import c_uint32
 import numpy as np
-from typing import Tuple
+from typing import Tuple, Sequence
 from pathlib import Path
 from functools import cached_property
 import re
@@ -34,7 +34,7 @@ class OpenSlideReader(SlideReader):
         return openslide_mpp_extractor(self._slide)
 
     @property
-    def level_dimensions(self) -> Tuple[int, int]:
+    def level_dimensions(self) -> Sequence[Tuple[int, int]]:
         return self._slide.level_dimensions
 
     @property

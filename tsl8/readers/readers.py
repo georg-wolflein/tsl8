@@ -1,4 +1,5 @@
 from abc import ABC, abstractmethod, abstractproperty
+from collections.abc import Iterable
 from typing import Tuple, Sequence, Union
 import numpy as np
 from pathlib import Path
@@ -17,8 +18,12 @@ class SlideReader(ABC):
         pass
 
     @abstractproperty
-    def level_dimensions(self) -> Tuple[int, int]:
+    def level_dimensions(self) -> Sequence[Tuple[int, int]]:
         pass
+
+    @property
+    def dimensions(self) -> Tuple[int, int]:
+        return self.level_dimensions[0]
 
     @abstractproperty
     def level_downsamples(self) -> Sequence[float]:

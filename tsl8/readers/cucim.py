@@ -1,13 +1,11 @@
 from cucim import CuImage
-from ctypes import c_uint32
 import numpy as np
-from typing import Tuple
+from typing import Tuple, Sequence
 from pathlib import Path
 from skimage.util import img_as_float
 from functools import cached_property
 
 from .readers import SlideReader
-from .mpp import MPPExtractionError, MPPExtractor
 
 
 class CucimReader(SlideReader):
@@ -29,7 +27,7 @@ class CucimReader(SlideReader):
             return openslide_mpp_extractor(slide)
 
     @property
-    def level_dimensions(self) -> Tuple[int, int]:
+    def level_dimensions(self) -> Sequence[Tuple[int, int]]:
         return self._slide.resolutions["level_dimensions"]
 
     @property

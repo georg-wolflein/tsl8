@@ -2,5 +2,8 @@ tqdm
 numpy
 Pillow
 openslide-python
+cucim
 scipy
 opencv-python
+loguru
+scikit-image
