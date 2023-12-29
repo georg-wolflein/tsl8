@@ -1,0 +1,6 @@
+tqdm
+numpy
+Pillow
+openslide-python
+scipy
+opencv-python
