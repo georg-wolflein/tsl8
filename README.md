@@ -13,5 +13,6 @@ pip install -r requirements.txt
 # Running
 ```
 source env/bin/activate
-python -m tsl8.extract_tiles
+python -m tsl8.run --input ... --output ...
 ```
+Note: use `--help` for a list of options.

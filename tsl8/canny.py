@@ -1,8 +1,14 @@
-"""Faster implementation of Canny edge detection."""
-
-import cv2
 import numpy as np
+import cv2
 
+
+def rgb2gray(rgb: np.ndarray) -> np.ndarray:
+    return np.dot(rgb, np.array([0.299, 0.587, 0.114])).astype(
+        np.uint8
+    )  # see https://docs.opencv.org/3.4/de/d25/imgproc_color_conversions.html
+
+
+@np.vectorize(signature="(n,m,c)->()")
 def is_background(patch: np.ndarray) -> bool:
     patch = rgb2gray(patch)
 
@@ -16,8 +22,3 @@ def is_background(patch: np.ndarray) -> bool:
 
     # hardcoded limit. Less or equal to 2 edges will be rejected (i.e., not saved)
     return edge < 2.0
-
-def rgb2gray(rgb: np.array) -> np.array:
-    return np.dot(rgb, np.array([0.299, 0.587, 0.114])).astype(
-        np.uint8
-    )  # see https://docs.opencv.org/3.4/de/d25/imgproc_color_conversions.html
