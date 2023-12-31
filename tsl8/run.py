@@ -89,20 +89,14 @@ def process_slide(
                 f"Level {level} is of size {x}x{y} (padded to {level_dim_x}x{level_dim_y}) and will be split into {x_chunks}x{y_chunks} chunks each of size {loaded_slide_chunk_size}x{loaded_slide_chunk_size}, resized to {target_slide_chunk_size}x{target_slide_chunk_size}"
             )
 
-            def _ref_pos(x: int, y: int, level: int):
-                dsample = slide.level_downsamples[level]
-                xref = int(x * dsample * patch_size)
-                yref = int(y * dsample * patch_size)
-                return xref, yref
-
             def load_chunk(chunk_x_index, chunk_y_index):
-                chunk_x, chunk_y = chunk_x_index * target_slide_chunk_size, chunk_y_index * target_slide_chunk_size
-                location = _ref_pos(chunk_x, chunk_y, level)
+                location = chunk_x_index * loaded_slide_chunk_size, chunk_y_index * loaded_slide_chunk_size
+                resized_location = chunk_x_index * target_slide_chunk_size, chunk_y_index * target_slide_chunk_size
                 size = (loaded_slide_chunk_size, loaded_slide_chunk_size)
                 # print("read", chunk_x, chunk_y, location, level, size)
                 chunk = slide.read_region(location, level, size)
                 chunk = cv2.resize(chunk, (target_slide_chunk_size, target_slide_chunk_size))
-                return chunk, (chunk_x, chunk_y)
+                return chunk, resized_location
 
             def process_chunk(chunk_x_index, chunk_y_index):
                 # Load chunk
@@ -202,7 +196,9 @@ def main():
     parser.add_argument("--output", default=None, type=Path, help="Path to output folder")
     parser.add_argument("--mpp", default=0.5, type=float, help="Target MPP")
     parser.add_argument("--patch-size", "-p", default=512, type=int, help="Patch size")
-    parser.add_argument("--no-check-status", action="store_false", dest="check_status", help="Don't check status file")
+    parser.add_argument(
+        "--no-skip", action="store_false", dest="check_status", help="Don't skip slides based on status file"
+    )
     parser.add_argument(
         "--level",
         default=None,
@@ -263,7 +259,7 @@ def main():
         level=args.level,
         patch_to_chunk_multiplier=args.patch_to_chunk_multiplier,
         backend=args.backend,
-        num_slides=args.n,
+        num_slides=args.num_slides,
         n_workers=args.workers,
         n_threads_per_slide=args.threads_per_worker,
     )

@@ -3,6 +3,7 @@ tests/test_slide.svs
 /weights/
 /outputs/
 /env/
+/tmp/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

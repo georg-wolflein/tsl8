@@ -18,7 +18,7 @@ def is_background(patch: np.ndarray) -> bool:
     # avoid dividing by zero
     edge = (edge / np.max(edge)) if np.max(edge) != 0 else 0
     num_pixels = np.prod(patch.shape)
-    edge = ((np.sum(np.sum(edge)) / num_pixels) * 100) if num_pixels != 0 else 0
+    edge = ((np.sum(edge) / num_pixels) * 100) if num_pixels != 0 else 0
 
     # hardcoded limit. Less or equal to 2 edges will be rejected (i.e., not saved)
     return edge < 2.0
