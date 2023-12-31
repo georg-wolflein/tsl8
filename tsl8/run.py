@@ -190,7 +190,7 @@ def main():
     )
     parser.add_argument(
         "--patch-to-chunk-multiplier",
-        default=16,
+        default=24,
         type=int,
         help="How many patches to put in each chunk (this value will be squared to get the total number of patches per chunk)",
     )
