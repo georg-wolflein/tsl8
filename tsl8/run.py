@@ -10,6 +10,7 @@ import os
 import argparse
 import multiprocessing as mp
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_completed
+import sys
 
 from tsl8.canny import is_background
 from tsl8.slide import Backend, make_slide_reader, MPPExtractionError
@@ -28,7 +29,8 @@ def process_slide(
     patch_to_chunk_multiplier: int = 16,  # 16 means 16x16 per chunk
     backend: Backend = "auto",
     description: str = None,
-    n_threads_per_slide: int = 32,
+    n_threads_per_slide: int = 16,
+    tqdm_position: int = 0,
 ):
     """Process a slide and save the patches to disk."""
     description = description or slide_file.stem
@@ -78,12 +80,14 @@ def process_slide(
             # Compute padded level dimensions for selected level
             x, y = slide.level_dimensions[level]
             level_dim_x, level_dim_y = (
-                int(np.ceil(x / target_slide_chunk_size)) * target_slide_chunk_size,
-                int(np.ceil(y / target_slide_chunk_size)) * target_slide_chunk_size,
+                int(np.ceil(x / loaded_slide_chunk_size)) * loaded_slide_chunk_size,
+                int(np.ceil(y / loaded_slide_chunk_size)) * loaded_slide_chunk_size,
             )
 
-            x_chunks, y_chunks = level_dim_x // target_slide_chunk_size, level_dim_y // target_slide_chunk_size
-            logger.debug(f"Level {level} will be split into {x_chunks}x{y_chunks} chunks")
+            x_chunks, y_chunks = level_dim_x // loaded_slide_chunk_size, level_dim_y // loaded_slide_chunk_size
+            logger.debug(
+                f"Level {level} is of size {x}x{y} (padded to {level_dim_x}x{level_dim_y}) and will be split into {x_chunks}x{y_chunks} chunks each of size {loaded_slide_chunk_size}x{loaded_slide_chunk_size}, resized to {target_slide_chunk_size}x{target_slide_chunk_size}"
+            )
 
             def _ref_pos(x: int, y: int, level: int):
                 dsample = slide.level_downsamples[level]
@@ -125,9 +129,11 @@ def process_slide(
                 ]
                 for _ in tqdm(
                     as_completed(futures),
-                    desc=f"Processing {description}",
+                    desc=f"Worker #{tqdm_position:02d}: {description}",
                     unit="chunk",
                     total=x_chunks * y_chunks,
+                    position=tqdm_position,
+                    leave=False,
                 ):
                     pass
     except MPPExtractionError:
@@ -136,35 +142,66 @@ def process_slide(
         raise
 
     write_status_file()
-    logger.info(f"Finished processing {slide_file.stem} in {time() - start_time:.2f}s")
+    logger.debug(f"Finished processing {slide_file.stem} in {time() - start_time:.2f}s")
 
 
-def process_slides(slides_folder: Path, output_path: Path, num_slides: int = None, **kwargs):
+def process_slides(slides_folder: Path, output_path: Path, num_slides: int = None, n_workers: int = 4, **kwargs):
     logger.info("Gathering slides")
     slides = sorted(file for file in slides_folder.iterdir() if file.suffix.lower() in SLIDE_EXTENSIONS)
     logger.info(f"Found {len(slides)} slides")
 
+    def worker(input_queue, output_queue, worker_id: int):
+        while True:
+            item = input_queue.get()
+            if item is None:
+                break
+            i, slide_file = item
+            process_slide(
+                slide_file,
+                output_path,
+                **kwargs,
+                description=f"slide [{i}/{num_slides}] {slide_file.stem}",
+                tqdm_position=worker_id,
+            )
+            output_queue.put(i)
+
+    # Enqueue slides
+    input_queue = mp.Queue()
+    output_queue = mp.Queue()
+    tasks = []
     for i, slide_file in enumerate(slides, 1):
         if num_slides is not None and i > num_slides:
             break
-        process_slide(
-            slide_file,
-            output_path,
-            **kwargs,
-            description=f"slide [{i}/{len(slides)}] {slide_file.stem}",
-        )
+        args = i, slide_file
+        tasks.append(args)
+        input_queue.put(args)
+    num_slides = len(tasks)
 
-    logger.info(f"Completed processing slides")
+    # Start workers
+    start = time()
+    workers = [mp.Process(target=worker, args=(input_queue, output_queue, i + 1)) for i in range(n_workers)]
+    for w in workers:
+        w.start()
+
+    # Wait for workers to finish
+    for _ in tqdm(range(num_slides), desc="Processing slides", unit="slide", position=0, leave=False):
+        output_queue.get()
+
+    # Stop workers
+    for _ in workers:
+        input_queue.put(None)
+
+    logger.info(
+        f"Completed processing {num_slides} slides in {time() - start:.2f}s ({(time() - start) / num_slides:.2f}s/slide)"
+    )
 
 
 def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument(
-        "--input", default="/pathology/camelyon16/training/tumor", type=Path, help="Path to folder containing slides"
-    )
-    parser.add_argument("--output", default="/data/tsl8_out", type=Path, help="Path to output folder")
+    parser = argparse.ArgumentParser("tsl8", description="Extract patches from slides")
+    parser.add_argument("--input", default=None, type=Path, help="Path to folder containing slides")
+    parser.add_argument("--output", default=None, type=Path, help="Path to output folder")
     parser.add_argument("--mpp", default=0.5, type=float, help="Target MPP")
-    parser.add_argument("--patch-size", default=512, type=int, help="Patch size")
+    parser.add_argument("--patch-size", "-p", default=512, type=int, help="Patch size")
     parser.add_argument("--no-check-status", action="store_false", dest="check_status", help="Don't check status file")
     parser.add_argument(
         "--level",
@@ -174,27 +211,49 @@ def main():
     )
     parser.add_argument(
         "--patch-to-chunk-multiplier",
+        "-k",
         default=24,
         type=int,
         help="How many patches to put in each chunk (this value will be squared to get the total number of patches per chunk)",
     )
     parser.add_argument(
         "--backend",
+        "-b",
         default="auto",
         type=str,
         choices=["auto", "openslide", "cucim"],
         help="Which backend to use for reading the slide (set to 'auto' to select the best backend based on the file extension)",
     )
-    parser.add_argument("--workers", default=32, type=int, help="Number of processes")
-    parser.add_argument("--threads-per-worker", default=1, type=int, help="Number of threads per process")
-    parser.add_argument("--memory-limit", default="64GB", type=str, help="Memory limit per process")
     parser.add_argument(
-        "--n", default=None, type=int, help="Number of slides to process (for debugging); default is all"
+        "--workers", "-w", default=4, type=int, help="Number of slides to process in parallel (one process per slide)"
     )
+    parser.add_argument(
+        "--threads-per-worker",
+        "-t",
+        default=16,
+        type=int,
+        help="Number of threads per slide/process (how many chunks to process in parallel per slide)",
+    )
+    parser.add_argument(
+        "--num-slides", "-n", default=None, type=int, help="Number of slides to process (for debugging); default is all"
+    )
+    parser.add_argument("--debug", action="store_true", help="Enable debug logging")
 
-    parser.set_defaults(check_status=True, optimize_graph=True)
+    parser.set_defaults(check_status=True, optimize_graph=True, debug=False)
     args = parser.parse_args()
 
+    if args.input is None or args.output is None:
+        parser.error("--input and --output options are required")
+
+    # Set up logging
+    logger.remove()
+    logger.add(
+        sys.stderr,
+        format="<green>{time:YYYY-MM-DD HH:mm:ss.SSS}</green> | <level>{level: <8}</level> | <cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> - <level>{message}</level>",
+        level="DEBUG" if args.debug else "INFO",
+    )
+
+    # Process slides
     process_slides(
         slides_folder=args.input,
         output_path=args.output,
@@ -205,6 +264,8 @@ def main():
         patch_to_chunk_multiplier=args.patch_to_chunk_multiplier,
         backend=args.backend,
         num_slides=args.n,
+        n_workers=args.workers,
+        n_threads_per_slide=args.threads_per_worker,
     )
 
 
