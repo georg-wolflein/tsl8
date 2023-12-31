@@ -13,6 +13,6 @@ pip install -r requirements.txt
 # Running
 ```
 source env/bin/activate
-python -m tsl8.run --input ... --output ...
+python -m tsl8 --input ... --output ...
 ```
 Note: use `--help` for a list of options.

@@ -154,12 +154,14 @@ def process_slide(
     logger.info(f"Finished processing {slide_file.stem} in {time() - start_time:.2f}s")
 
 
-def process_slides(client: Client, slides_folder: Path, output_path: Path, **kwargs):
+def process_slides(client: Client, slides_folder: Path, output_path: Path, num_slides: int = None, **kwargs):
     logger.info("Gathering slides")
     slides = sorted(file for file in slides_folder.iterdir() if file.suffix.lower() in SLIDE_EXTENSIONS)
     logger.info(f"Found {len(slides)} slides")
 
     for i, slide_file in enumerate(slides, 1):
+        if num_slides is not None and i > num_slides:
+            break
         process_slide(
             client,
             slide_file,
@@ -168,7 +170,7 @@ def process_slides(client: Client, slides_folder: Path, output_path: Path, **kwa
             description=f"slide [{i}/{len(slides)}] {slide_file.stem}",
         )
 
-    logger.info("Completed processing all slides")
+    logger.info(f"Completed processing slides")
 
 
 def main():
@@ -182,9 +184,9 @@ def main():
     parser.add_argument("--no-check-status", action="store_false", dest="check_status", help="Don't check status file")
     parser.add_argument(
         "--level",
-        default=0,
-        type=Union[int, Literal["auto"]],
-        help="Which level of the slide pyramid to use (set to 'auto' to select the highest level with MPP lower than the target MPP)",
+        default=None,
+        type=Optional[int],
+        help="Which level of the slide pyramid to use (if unspecified, select the highest level with MPP lower than the target MPP)",
     )
     parser.add_argument(
         "--patch-to-chunk-multiplier",
@@ -208,6 +210,9 @@ def main():
     parser.add_argument("--workers", default=32, type=int, help="Number of processes")
     parser.add_argument("--threads-per-worker", default=1, type=int, help="Number of threads per process")
     parser.add_argument("--memory-limit", default="64GB", type=str, help="Memory limit per process")
+    parser.add_argument(
+        "--n", default=None, type=int, help="Number of slides to process (for debugging); default is all"
+    )
 
     parser.set_defaults(check_status=True, optimize_graph=True)
     args = parser.parse_args()
@@ -232,6 +237,7 @@ def main():
         patch_to_chunk_multiplier=args.patch_to_chunk_multiplier,
         backend=args.backend,
         optimize_graph=args.optimize_graph,
+        num_slides=args.n,
     )
 
 
