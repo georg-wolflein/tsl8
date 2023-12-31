@@ -7,5 +7,3 @@ scipy
 opencv-python
 loguru
 scikit-image
-dask[distributed]
-zarr
