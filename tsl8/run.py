@@ -12,8 +12,7 @@ import multiprocessing as mp
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_completed
 
 from tsl8.canny import is_background
-from tsl8.slide import load_slide, MPPExtractionError
-from tsl8.slide.readers import Backend, make_slide_reader
+from tsl8.slide import Backend, make_slide_reader, MPPExtractionError
 
 
 SLIDE_EXTENSIONS = [".svs", ".tif", ".dcm", ".ndpi", ".vms", ".vmu", ".scn", ".mrxs", ".tiff", ".svslide", ".bif"]
@@ -118,7 +117,7 @@ def process_slide(
                             str(slide_output_dir / f"{chunk_x + x_offset:08d}_{chunk_y + y_offset:08d}.jpg"), patch
                         )
 
-            with ThreadPoolExecutor(max_workers=n_threads) as executor:
+            with ThreadPoolExecutor(max_workers=n_threads_per_slide) as executor:
                 futures = [
                     executor.submit(process_chunk, chunk_x_index, chunk_y_index)
                     for chunk_x_index in range(x_chunks)
