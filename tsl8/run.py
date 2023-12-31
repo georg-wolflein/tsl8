@@ -90,13 +90,18 @@ def process_slide(
             )
 
             def load_chunk(chunk_x_index, chunk_y_index):
-                location = chunk_x_index * loaded_slide_chunk_size, chunk_y_index * loaded_slide_chunk_size
-                resized_location = chunk_x_index * target_slide_chunk_size, chunk_y_index * target_slide_chunk_size
+                # Compute chunk location in target MPP coordinates
+                x, y = chunk_x_index * target_slide_chunk_size, chunk_y_index * target_slide_chunk_size
+
+                # Compute chunk location in slide coordinates (slide_mpp is level0_mpp)
+                level0_x = int(x * target_mpp / slide_mpp)
+                level0_y = int(y * target_mpp / slide_mpp)
+
                 size = (loaded_slide_chunk_size, loaded_slide_chunk_size)
                 # print("read", chunk_x, chunk_y, location, level, size)
-                chunk = slide.read_region(location, level, size)
+                chunk = slide.read_region((level0_x, level0_y), level, size)
                 chunk = cv2.resize(chunk, (target_slide_chunk_size, target_slide_chunk_size))
-                return chunk, resized_location
+                return chunk, (x, y)
 
             def process_chunk(chunk_x_index, chunk_y_index):
                 # Load chunk
