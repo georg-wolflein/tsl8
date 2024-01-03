@@ -2,7 +2,7 @@ from pathlib import Path
 from typing import Literal
 from loguru import logger
 
-from .readers import SlideReader
+from .readers import SlideReader, UnsupportedFormatError
 from .openslide import OpenSlideReader
 from .cucim import CucimReader
 from .mpp import MPPExtractionError

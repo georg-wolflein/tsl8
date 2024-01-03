@@ -43,3 +43,7 @@ class SlideReader(ABC):
     def get_best_level_for_mpp(self, target_mpp: float) -> int:
         """Returns the best level for the given mpp."""
         return self.get_best_level_for_downsample(target_mpp / self.mpp)
+
+
+class UnsupportedFormatError(Exception):
+    pass

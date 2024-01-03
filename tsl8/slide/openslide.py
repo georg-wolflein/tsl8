@@ -8,14 +8,17 @@ from functools import cached_property
 import re
 from loguru import logger
 
-from .readers import SlideReader
+from .readers import SlideReader, UnsupportedFormatError
 from .mpp import MPPExtractionError, MPPExtractor
 
 
 class OpenSlideReader(SlideReader):
     def __init__(self, path: Path):
         super().__init__(path)
-        self._slide = openslide.OpenSlide(str(path))
+        try:
+            self._slide = openslide.OpenSlide(str(path))
+        except openslide_ll.OpenSlideUnsupportedFormatError:
+            raise UnsupportedFormatError
 
     def read_region(self, loc: Tuple[int, int], level: int, size: Tuple[int, int]) -> np.ndarray:
         """Adapted from openslide.lowlevel.read_region() to not use PIL images, but directly return a numpy array."""

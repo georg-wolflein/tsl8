@@ -13,7 +13,7 @@ from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_compl
 import sys
 
 from tsl8.canny import is_background
-from tsl8.slide import Backend, make_slide_reader, MPPExtractionError
+from tsl8.slide import Backend, make_slide_reader, MPPExtractionError, UnsupportedFormatError
 
 
 SLIDE_EXTENSIONS = [".svs", ".tif", ".dcm", ".ndpi", ".vms", ".vmu", ".scn", ".mrxs", ".tiff", ".svslide", ".bif"]
@@ -33,7 +33,7 @@ def process_slide(
     tqdm_position: int = 0,
 ):
     """Process a slide and save the patches to disk."""
-    description = description or slide_file.stem
+    description = description or slide_file.name
 
     slide_output_dir = output_path / Path(slide_file).stem
     slide_output_dir.mkdir(exist_ok=True, parents=True)
@@ -44,7 +44,9 @@ def process_slide(
     # Check if the slide has already been processed
     status_file = output_path / "status" / f"{slide_file.stem}.done"
     if check_status and status_file.exists():
-        logger.info(f"Skipping {description} because it has already been processed")
+        with status_file.open("r") as f:
+            status = f.read().strip()
+        logger.info(f"Skipping {description} because it has already been processed [{status}]")
         return
 
     def write_status_file(message: str = "done"):
@@ -138,7 +140,11 @@ def process_slide(
     except MPPExtractionError:
         logger.warning(f"Could not extract MPP for {slide_file}, skipping")
         write_status_file("mpp_extraction_error")
-        raise
+        return
+    except UnsupportedFormatError:
+        logger.warning(f"Unsupported format error for {slide_file}, skipping")
+        write_status_file("unsupported_format_error")
+        return
 
     write_status_file()
     logger.debug(f"Finished processing {slide_file.stem} in {time() - start_time:.2f}s")
@@ -159,7 +165,7 @@ def process_slides(slides_folder: Path, output_path: Path, num_slides: int = Non
                 slide_file,
                 output_path,
                 **kwargs,
-                description=f"slide [{i}/{num_slides}] {slide_file.stem}",
+                description=f"slide [{i}/{num_slides}] {slide_file.name}",
                 tqdm_position=worker_id,
             )
             output_queue.put(i)
@@ -213,7 +219,7 @@ def main():
     parser.add_argument(
         "--patch-to-chunk-multiplier",
         "-k",
-        default=24,
+        default=16,
         type=int,
         help="How many patches to put in each chunk (this value will be squared to get the total number of patches per chunk)",
     )

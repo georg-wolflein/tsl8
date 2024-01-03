@@ -5,7 +5,7 @@ from pathlib import Path
 from skimage.util import img_as_float
 from functools import cached_property
 
-from .readers import SlideReader
+from .readers import SlideReader, UnsupportedFormatError
 
 
 class CucimReader(SlideReader):
@@ -22,9 +22,13 @@ class CucimReader(SlideReader):
         # TODO: implement mpp extraction for cucim
         from .openslide import openslide_mpp_extractor
         from openslide import OpenSlide
+        from openslide.lowlevel import OpenSlideUnsupportedFormatError
 
-        with OpenSlide(str(self._path)) as slide:
-            return openslide_mpp_extractor(slide)
+        try:
+            with OpenSlide(str(self._path)) as slide:
+                return openslide_mpp_extractor(slide)
+        except OpenSlideUnsupportedFormatError:
+            raise UnsupportedFormatError
 
     @property
     def level_dimensions(self) -> Sequence[Tuple[int, int]]:
