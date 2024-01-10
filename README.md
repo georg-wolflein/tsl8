@@ -1,7 +1,7 @@
 tsl8
 ====
 
-*tsl8*, pronounced "tesselate" is a parallelised solution for reading whole slide images (WSIs), splitting them into non-overlapping patches/tiles, and rejecting background tiles.
+*tsl8*, pronounced "tesselate" is a parallelised solution for reading whole slide images (WSIs), splitting them into non-overlapping patches/tiles, rejecting background tiles, and saving the remaining tiles in JPEG format.
 
 # Installation
 ```
